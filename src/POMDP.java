@@ -1,7 +1,9 @@
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Scanner;
+
+
+
+// normalize, end states, sensor info (if col3&1 *.9, otherwise 1, OPPOSITE for non-col-3
+
 
 public class POMDP {
 
@@ -12,7 +14,7 @@ public class POMDP {
 		boolean stateGiven = false;
 		grid = new double[3][4];
 		if (start != null){
-			grid[start[0]][start[1]] = 1;
+			grid[start[0]][start[1]] = 1.0;
 			stateGiven = true;
 		}
 
@@ -28,102 +30,185 @@ public class POMDP {
 
 	public static void main(String [] args)
 	{
-		while (true){
-			scanner = new Scanner(System.in);
-			String rawIn = null;
-			System.out.print("argument format --> "
-					+ "ACTION-SEQUENCE: \"a1,a2...a*\" "
-					+ "OBSERVATION-SEQUENCE: \"o1,o2...o*\" "
-					+ "START-STATE(optional): \"x,y\" \n"
-					+ "eg> up,down 2,2 1,2 \n"
-					+ "enter args>");
-			rawIn = scanner.nextLine();
-			String[] in = parseArguments(rawIn);
-			int[] start = null;
-			if (in.length == 3){
-				start = new int[2];
-				String[] sstate = in[2].split(",");
-				start[0] = Integer.valueOf(sstate[1])-1;
-				start[1] = Integer.valueOf(sstate[0])-1;
-			}
-			POMDP pom = new POMDP(start);
-
-			String[] actions = in[0].split(",");
-			String[] obs = in[1].split(",");
-			pom.move(actions, obs);
+		scanner = new Scanner(System.in);
+		String rawIn = null;
+		System.out.print("argument format --> "
+				+ "ACTION-SEQUENCE: \"a1,a2...a*\" \n"
+				+ "OBSERVATION-SEQUENCE: \"o1,o2...o*\" \n"
+				+ "START-STATE(optional): \"x,y\" \n"
+				+ "eg> up,down 2,2 1,2 \n"
+				+ "enter args>");
+		rawIn = scanner.nextLine();
+		String[] in = parseArguments(rawIn);
+		int[] start = null;
+		if (in.length == 3){
+			start = new int[2];
+			String[] sstate = in[2].split(",");
+			start[0] = Integer.valueOf(sstate[1])-1;
+			start[1] = Integer.valueOf(sstate[0])-1;
 		}
+		POMDP pom = new POMDP(start);
+
+		printGrid();
+		System.out.println("...");
+		String[] actions = in[0].split(",");
+		String[] obs = in[1].split(",");
+		pom.move(actions, obs);
+
 	}
 
 
 	private void move(String[] actions, String[] obs) {
 		for (int i = 0; i < actions.length; i++) {
-			for (int j = 0; j < grid.length; j++) {
-				for (int k = 0; k < grid[i].length; k++) {
-					if ((j == 2 && k == 2)){} //skip pillar
-					else updateCell(j, k, actions[i], obs[i]);
+			double[][] gridCopy = deepCopyDoubleMatrix(grid);
+			for (int j = 0; j < 4; j++) {
+				for (int k = 0; k < 3; k++) {
+					if ((j == 1 && k == 1)){} //skip pillar
+					else updateCell(j, k, actions[i], obs[i], gridCopy);
 				}
 			}
 			printGrid();
 			System.out.println("...");
+			normalize();
 		}
 	}
 
-	private void updateCell(int cellX, int cellY, String action, String obs) {
-		double origVal = grid[cellX][cellY];
-		// multiply original value by prob of ending up there given eg left move, 
-		// add probs of ending up in other states (mult by their belief numbers: WHY?)
-		// multiply everything by obs, which is .9 if 3rdCol+1 OR other+2 (.1 otherwise)
+	private void updateCell(int cellX, int cellY, String action, String obs, double[][] gridCopy) {
+		double origVal = gridCopy[cellY][cellX];
+
+		double sumProb = 0;
+
+		if (!obs.equals("end"))
+			switch (action) {
+			case "up":
+				if (wallCheck(cellX, cellY, "up") && (wallCheck(cellX, cellY, "left"))){
+					sumProb += origVal*0.9f;
+				}
+				else if (wallCheck(cellX, cellY, "up")&&wallCheck(cellX, cellY, "right")){}
+				else if (wallCheck(cellX, cellY, "up"))
+					sumProb += origVal*0.8f;
+
+				if (!wallCheck(cellX, cellY, "down"))
+					if (!(cellX==3&&cellY==2))
+						sumProb += gridCopy[cellY-1][cellX]*0.8f;
+
+				if(wallCheck(cellX, cellY, "left"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY][cellX-1]*0.1f;
+
+				if(wallCheck(cellX, cellY, "right"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY][cellX+1]*0.1f;
+
+				grid[cellY][cellX] = sumProb;
+				break;
+
+			case "down":
+				if (wallCheck(cellX, cellY, "down") && (wallCheck(cellX, cellY, "left") || wallCheck(cellX, cellY, "right"))){
+					sumProb += origVal*0.9f;
+				}
+				else if (wallCheck(cellX, cellY, "down"))
+					sumProb += origVal*0.8f;
+
+				if (!wallCheck(cellX, cellY, "up"))
+					if (cellX == 3){}
+					else sumProb += gridCopy[cellY+1][cellX]*0.8f;
+
+				if(wallCheck(cellX, cellY, "left"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY][cellX-1]*0.1f;
+
+				if(wallCheck(cellX, cellY, "right"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY][cellX+1]*0.1f;
+
+				grid[cellY][cellX] = sumProb;
+				break;
+
+			case "left":
+				if (wallCheck(cellX, cellY, "left") && (wallCheck(cellX, cellY, "down") || wallCheck(cellX, cellY, "up"))){
+					sumProb += origVal*0.9f;
+				}
+				else if (wallCheck(cellX, cellY, "left"))
+					sumProb += origVal*0.8f;
+
+				if (wallCheck(cellX, cellY, "down"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY-1][cellX]*0.1f;
+
+				if(wallCheck(cellX, cellY, "up"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY+1][cellX]*0.1f;
+
+				if(!wallCheck(cellX, cellY, "right")){
+					if ((cellX == 2 && cellY != 0)){}
+					else sumProb += gridCopy[cellY][cellX+1]*0.8f;
+				}
+
+				grid[cellY][cellX] = sumProb;
+				break;
+
+
+			case "right":
+				if (wallCheck(cellX, cellY, "right") && (wallCheck(cellX, cellY, "down") || wallCheck(cellX, cellY, "up"))){
+					sumProb += origVal*0.9f;
+				}
+				else if (wallCheck(cellX, cellY, "right"))
+					if (cellX == 3 && cellY != 0)
+						sumProb += origVal*0.8f;
+
+				if (wallCheck(cellX, cellY, "down"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY-1][cellX]*0.1f;
+
+				if(wallCheck(cellX, cellY, "up"))
+					sumProb += origVal*0.1f;
+				else sumProb += gridCopy[cellY+1][cellX]*0.1f;
+
+				if(!wallCheck(cellX, cellY, "left"))
+					sumProb += gridCopy[cellY][cellX-1]*0.8f;
+
+				grid[cellY][cellX] = sumProb;
+				break;
+
+			default:
+				break;
+			}
+
+		if (cellX == 3)
+			if (obs.equals("1"))
+				grid[cellY][cellX] = grid[cellY][cellX]*0.9;
+			else grid[cellY][cellX] = grid[cellY][cellX]*0.1;
+		else if (obs.equals("1")){
+			grid[cellY][cellX] = grid[cellY][cellX]*0.1;
+		}
+		else grid[cellY][cellX] = grid[cellY][cellX]*0.9;
+	}
+
+
+	private boolean wallCheck(int cellX, int cellY, String action) {
 		switch (action) {
 		case "up":
-			// against a the ceiling
-			if (cellY == 3 || (cellX == 2 && cellY == 1) || terminal(cellX, cellY)){
-				if (cellX == 1 && cellY == 3)
-					grid[cellX][cellY] = .9*origVal + 0.8*grid[cellX+1][cellY];
-				else 
-					grid[cellX][cellY] = .8*origVal + 0.1*grid[cellX+1][cellY] + + 0.1*grid[cellX-1][cellY];
-			}	
-			else {
-
-			}
+			if (cellY==2 || (cellX==1&&cellY==0))
+				return true;
 			break;
 		case "down":
-			// against a floor 
-			if (cellY == 1 || (cellX == 2 && cellY == 3) || terminal(cellX, cellY)){
-
-			}
-			else {
-
-			}
+			if (cellY==0 || (cellX==1&&cellY==2))
+				return true;
 			break;
 		case "left":
-			// against a left wall 
-			if (cellX == 1 || (cellX == 3 && cellY == 2) || terminal(cellX, cellY)){
-
-			}
-			else {
-
-			}
+			if (cellX==0 || (cellX==2&&cellY==1))
+				return true;
 			break;
-			// against a right wall
 		case "right":
-			if (cellX == 4 || (cellX == 1 && cellY == 2) || terminal(cellX, cellY)){
-
-			}
-			else {
-
-			}
+			if (cellX==3 || (cellX==0&&cellY==1))
+				return true;
 			break;
+
 		default:
 			break;
 		}
-		//		else {
-		//			System.out.println("END");
-		//  left: .8*currentVal
-		//		}
-	}
-
-	private boolean terminal(int cellX, int cellY) {
-		return (cellX == 3 && (cellY == 2 || cellY == 3));
+		return false;
 	}
 
 	public static String[] parseArguments(String input){
@@ -134,17 +219,54 @@ public class POMDP {
 
 	public static void printGrid(){
 		//		System.out.print("- - - - - - - - - - - - - - - - - - - - - - - - - ");
-		for (int i = 0; i < grid.length; i++) {
+		for (int j = 0; j < 3; j++) {
 			System.out.println();
-			for (int j = 0; j < grid[i].length; j++) {
-				if ((2-i == 1 && j == 1)){
-					System.out.print("|    "+"*****"+"    ");
+			for (int i = 0; i < 4; i++) {
+				if ((i == 1 && j == 1)){
+					System.out.print("|    "+"*******"+"    ");
 				}
-				else System.out.print("|    "+grid[2-i][j]+"    ");
+				else System.out.print("|    "+String.format("%.5f",grid[2-j][i])+"    ");
 			}
 			System.out.println("|");
 			//			System.out.print("- - - - - - - - - - - - - - - - - - - - - - - - - ");
 		}
 	}
+	
+	private void normalize(){
+		double total = getTotal();
+		for (int j = 0; j < 4; j++) {
+			for (int k = 0; k < 3; k++) {
+				grid[k][j] /= total;
+			}
+		}
+		
+	}
+	
+
+	private double getTotal() {
+		double total = 0;
+		for (int j = 0; j < 4; j++) {
+			for (int k = 0; k < 3; k++) {
+				total += grid[k][j];
+			}
+		}
+		return total;
+	}
+
+	/*
+	 * code taken from: 
+	 * http://stackoverflow.com/questions/9106131/how-to-clone-a-multidimensional-array-in-java
+	 */
+	public static double[][] deepCopyDoubleMatrix(double[][] input) {
+		if (input == null)
+			return null;
+		double[][] result = new double[input.length][];
+		for (int r = 0; r < input.length; r++) {
+			result[r] = input[r].clone();
+		}
+		return result;
+	}
 
 }
+
+
